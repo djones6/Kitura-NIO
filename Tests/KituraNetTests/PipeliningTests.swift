@@ -99,11 +99,13 @@ class PipeliningTests : KituraNetTest {
 
 
 private class Delegate: ServerDelegate {
-    var count = 0
+    var count = -1
     func handle(request: ServerRequest, response: ServerResponse) {
         response.statusCode = .OK
+        DispatchQueue.global().sync {
+            count += 1
+        }
         try! response.end(text: "\(count)")
-        count += 1
     }
 }
 

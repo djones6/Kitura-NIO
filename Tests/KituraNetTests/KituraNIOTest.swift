@@ -18,6 +18,7 @@ import XCTest
 
 @testable import KituraNet
 
+import NIO
 import Foundation
 import Dispatch
 import SSLService
@@ -73,7 +74,19 @@ class KituraNetTest: XCTestCase {
         try server.listen(on: port)
         return server
     }
-    
+
+    func startServerAsync(_ delegate: ServerDelegate?, port: Int = portDefault, useSSL: Bool = useSSLDefault, allowPortReuse: Bool = portReuseDefault) -> EventLoopFuture<HTTPServer> {
+        let server = HTTP.createServer()
+        server.delegate = delegate
+        server.allowPortReuse = allowPortReuse
+        if useSSL {
+            server.sslConfig = KituraNetTest.sslConfig
+        }
+        return server.listenAsync(on: port).map { channel in
+            return server
+        }
+    }
+
     /// Convenience function for starting an HTTPServer on an ephemeral port,
     /// returning the a tuple containing the server and the port it is listening on.
     func startEphemeralServer(_ delegate: ServerDelegate?, useSSL: Bool = useSSLDefault, allowPortReuse: Bool = portReuseDefault) throws -> (server: HTTPServer, port: Int) {
@@ -113,6 +126,22 @@ class KituraNetTest: XCTestCase {
             }
         } catch {
             XCTFail("Error: \(error)")
+        }
+    }
+
+    func performServerTestAsync(_ delegate: ServerDelegate?, port: Int = portDefault, useSSL: Bool = useSSLDefault, allowPortReuse: Bool = portReuseDefault, line: Int = #line, asyncTasks: (XCTestExpectation, HTTPServer) -> EventLoopFuture<Void>...) -> EventLoopFuture<Void> {
+        self.useSSL = useSSL
+        self.port = port
+
+        return startServerAsync(delegate, port: port, useSSL: useSSL, allowPortReuse: allowPortReuse).then { server in
+            return EventLoopFuture.reduce(server, asyncTasks.map { $0(self.expectation(description: "Asynchronous Task"), server) },
+                                          eventLoop: server.serverChannel.eventLoop) { _, _ in
+                return server
+            }
+        }.then { server in
+            let promise: EventLoopPromise<Void> = server.serverChannel.eventLoop.newPromise()
+            server.stopAsync(promise: promise)
+            return promise.futureResult
         }
     }
 
@@ -169,6 +198,29 @@ class KituraNetTest: XCTestCase {
             requestModifier(req)
         }
         req.end(close: close)
+    }
+
+    func performRequestAsync(_ method: String, path: String, hostname: String = "localhost", close: Bool=true, callback: @escaping ClientRequest.Callback,                             headers: [String: String]? = nil, requestModifier: ((ClientRequest) -> Void)? = nil) -> EventLoopFuture<Void> {
+        var allHeaders = [String: String]()
+        if let headers = headers  {
+            for  (headerName, headerValue) in headers  {
+                allHeaders[headerName] = headerValue
+            }
+        }
+        allHeaders["Content-Type"] = "text/plain"
+
+        let schema = self.useSSL ? "https" : "http"
+        var options: [ClientRequest.Options] =
+            [.method(method), .schema(schema), .hostname(hostname), .port(Int16(self.port)), .path(path), .headers(allHeaders)]
+        if self.useSSL {
+            options.append(.disableSSLVerification)
+        }
+
+        let req = HTTP.request(options, callback: callback)
+        if let requestModifier = requestModifier {
+            requestModifier(req)
+        }
+        return req.endAsync(close: close)
     }
 
     func expectation(line: Int, index: Int) -> XCTestExpectation {

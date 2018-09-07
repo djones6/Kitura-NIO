@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import NIO
 
 /// A common protocol for Kitura-net Servers
 public protocol Server {
@@ -33,6 +34,9 @@ public protocol Server {
     ///
     /// - Parameter on: port number for new connections (eg. 8080)
     func listen(on port: Int) throws
+
+    /// Asynchronous version
+    func listenAsync(on port: Int) throws -> EventLoopFuture<Channel>
 
     /// Static method to create a new Server and have it listen for connections.
     ///
@@ -61,6 +65,8 @@ public protocol Server {
 
     /// Stop listening for new connections.
     func stop()
+
+    func stopAsync(promise: EventLoopPromise<Void>)
 
     /// Add a new listener for server beeing started
     ///

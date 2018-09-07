@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import NIO
 import Dispatch
 import LoggerAPI
 
@@ -57,6 +58,9 @@ public class FastCGIServer: Server {
         fatalError("FastCGI is not implemented yet.")
     }
 
+    public func listenAsync(on port: Int) throws -> EventLoopFuture<Channel> {
+        fatalError("FastCGI is not implemented yet.")
+    }
     /// Static method to create a new `FastCGIServer` and have it listen for conenctions
     ///
     /// - Parameter on: port number for accepting new connections
@@ -93,6 +97,9 @@ public class FastCGIServer: Server {
         fatalError("FastCGI is not implemented yet.")
     }
 
+    public func stopAsync(promise: EventLoopPromise<Void>) {
+        fatalError("FastCGI is not implemented yet.")
+    }
     /// Add a new listener for server being started
     ///
     /// - Parameter callback: The listener callback that will run on server successfull start-up

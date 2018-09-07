@@ -15,7 +15,7 @@
  */
 
 import Foundation
-
+import NIO
 // TBD: Bound should be of type Int i.e. Bound == Int. Currently this syntax is unavailable, expected to be shipped with Swift 3.1.
 // https://forums.developer.apple.com/thread/6627
 #if !swift(>=4)
@@ -80,12 +80,20 @@ public class FastCGIServerResponse : ServerResponse {
         fatalError("FastCGI not implemented yet.")
     }
 
+    public func endAsync(text: String) -> EventLoopFuture<Void> {
+        fatalError("FastCGI not implemented yet.")
+    }
+
     /// Add a string to the body of the HTTP response.
     ///
     /// - Parameter string: The String data to be added.
     ///
     /// - Throws: Socket.error if an error occurred while writing to the socket
     public func write(from string: String) throws {
+        fatalError("FastCGI not implemented yet.")
+    }
+
+    public func writeAsync(from string: String) -> EventLoopFuture<Void> {
         fatalError("FastCGI not implemented yet.")
     }
 
@@ -98,6 +106,10 @@ public class FastCGIServerResponse : ServerResponse {
         fatalError("FastCGI not implemented yet.")
     }
 
+    public func writeAsync(from data: Data) -> EventLoopFuture<Void> {
+         fatalError("FastCGI not implemented yet.")
+    }
+
     /// Complete sending the HTTP response
     ///
     /// - Throws: Socket.error if an error occurred while writing to a socket
@@ -105,6 +117,9 @@ public class FastCGIServerResponse : ServerResponse {
         fatalError("FastCGI not implemented yet.")
     }
 
+    public func endAsync() -> EventLoopFuture<Void> {
+        fatalError("FastCGI not implemented yet.")
+    }
     /// External message write for multiplex rejection
     ///
     /// - Parameter requestId: The id of the request to reject.

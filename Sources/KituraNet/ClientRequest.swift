@@ -23,7 +23,6 @@ import Dispatch
 
 /// This class provides a set of low level APIs for issuing HTTP requests to another server.
 public class ClientRequest {
-
     /// The set of HTTP headers to be sent with the request.
     public var headers = [String: String]()
 
@@ -83,8 +82,12 @@ public class ClientRequest {
     /// The path (uri) related to the request, starting from / and including query parameters
     private var path = ""
 
-    /// A semaphore used to make ClientRequest.end() synchronous
-    let waitSemaphore = DispatchSemaphore(value: 0)
+    let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+
+    /// A future that notifies the caller of the response receipt
+    public var responseReceived: EventLoopFuture<Void>?
+
+    var responsePromise: EventLoopPromise<Void>?
 
     /// Client request option enum
     public enum Options {
@@ -336,32 +339,44 @@ public class ClientRequest {
     /// The channel connecting to the remote server
     var channel: Channel!
 
-    /// The client bootstrap used to connect to the remote server
-    var bootstrap: ClientBootstrap!
-
-
     /// Send the request to the remote server
     ///
     /// - Parameter close: If true, add the "Connection: close" header to the set
     ///                   of headers sent with the request
     public func end(close: Bool = false) {
+        try! endAsync(close: close).wait()
+    }
+
+    public func endAsync(close: Bool = false) -> EventLoopFuture<Void> {
         closeConnection = close
 
-        var isHTTPS = false
-
-        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        if (URL(string: url)?.scheme)! == "https" {
-           isHTTPS = true
-           self.sslConfig = TLSConfiguration.forClient(certificateVerification: .none)   
+        return connect(using: group).then { channel in
+            self.sendRequest(request: self.prepareHTTPRequest(), on: channel)
+        }.then {
+            return self.responseReceived!
         }
+    }
 
-        if isHTTPS {
-            initializeClientBootstrapWithSSL(eventLoopGroup: group)
-        } else {
-            initializeClientBootstrap(eventLoopGroup: group)
+    func closeChannelIfRequired(channel: Channel) -> EventLoopFuture<Void> {
+        if closeConnection {
+            channel.close(promise: nil)
+            return channel.closeFuture
         }
+        return channel.eventLoop.newSucceededFuture(result: ())
+    }
 
+    func shutdownEventLoopGroup() {
+        do {
+            try group.syncShutdownGracefully()
+        } catch {
+            Log.error("ClientRequest failed to shut down the EventLoopGroup for the requested URL: \(url)")
+        }
+        return
+    }
+
+    private func prepareHTTPRequest() -> HTTPRequestHead {
         let hostName = URL(string: url)?.host ?? "" //TODO: what could be the failure path here
+
         if self.headers["Host"] == nil {
            self.headers["Host"] = hostName
         }
@@ -376,73 +391,64 @@ public class ClientRequest {
             self.headers["Authorization"] = createHTTPBasicAuthHeader(username: username, password: password)
         }
 
-        if self.port == nil {
-            self.port = isHTTPS ? 443 : 80
-        }
-
         //If the path is empty, set it to /
         let path = self.path == "" ? "/" : self.path
-
-        defer {
-            do {
-                try group.syncShutdownGracefully()
-            } catch {
-                Log.error("ClientRequest failed to shut down the EventLoopGroup for the requested URL: \(url)")
-            }
-        }
-
-        do {
-            channel = try bootstrap.connect(host: hostName, port: Int(self.port ?? 80)).wait()
-        } catch let error {
-            Log.error("Connection to \(hostName):\(self.port ?? 80) failed with error: \(error)")
-            callback(nil)
-            return
-        }
 
         var request = HTTPRequestHead(version: HTTPVersion(major: 1, minor:1), method: HTTPMethod.method(from: self.method), uri: path)
         request.headers = HTTPHeaders.from(dictionary: self.headers)
 
-        // Make the HTTP request, the response callbacks will be received on the HTTPClientHandler.
-        // We are mostly not running on the event loop. Let's make sure we send the request over the event loop.
-        execute(on: channel.eventLoop) {
-            self.sendRequest(request: request, on: self.channel)
-        }
-        waitSemaphore.wait()
+        return request
+    }
 
-        // We are now free to close the connection if asked for.
-        if closeConnection {
-            execute(on: channel.eventLoop) {
-                self.channel.close(promise: nil)
-            }
+    private func connect(using group: EventLoopGroup) -> EventLoopFuture<Channel> {
+        var bootstrap: ClientBootstrap
+
+        if self.isHTTPSRequest {
+            self.sslConfig = TLSConfiguration.forClient(certificateVerification: .none)
+            bootstrap = initializeClientBootstrapWithSSL(eventLoopGroup: group)
+        } else {
+            bootstrap = initializeClientBootstrap(eventLoopGroup: group)
         }
+        let hostName = URL(string: url)?.host ?? "" //TODO: what could be the failure path here
+
+        if self.port == nil {
+            self.port = isHTTPSRequest ? 443 : 80
+        }
+        return bootstrap.connect(host: hostName, port: Int(self.port!))
+    }
+
+    private var isHTTPSRequest: Bool {
+        return "https" == URL(string: url)?.scheme!
     }
 
     /// Executes task on event loop
-    private func execute(on eventLoop: EventLoop, _ task: @escaping () -> Void) {
+    private func execute(on eventLoop: EventLoop, _ task: @escaping () -> Void) -> EventLoopFuture<Void> {
         if eventLoop.inEventLoop {
             task()
-        } else {
-            eventLoop.execute {
-                task()
-            }
+            return eventLoop.newSucceededFuture(result: ())
+        }
+        return eventLoop.submit {
+            task()
         }
     }
 
-    private func sendRequest(request: HTTPRequestHead, on channel: Channel) {
+    private func sendRequest(request: HTTPRequestHead, on channel: Channel) -> EventLoopFuture<Void> {
+        self.responsePromise = channel.eventLoop.newPromise()
+        self.responseReceived = self.responsePromise?.futureResult
         channel.write(NIOAny(HTTPClientRequestPart.head(request)), promise: nil)
         if let bodyData = bodyData {
             let buffer = BufferList()
             buffer.append(data: bodyData)
             channel.write(NIOAny(HTTPClientRequestPart.body(.byteBuffer(buffer.byteBuffer))), promise: nil)
         }
-        _ = channel.writeAndFlush(NIOAny(HTTPClientRequestPart.end(nil)))
+        return channel.writeAndFlush(NIOAny(HTTPClientRequestPart.end(nil)))
     }
 
-    private func initializeClientBootstrapWithSSL(eventLoopGroup: EventLoopGroup) {
+    private func initializeClientBootstrapWithSSL(eventLoopGroup: EventLoopGroup) -> ClientBootstrap {
         if let sslConfig = self.sslConfig {
             sslContext = try! SSLContext(configuration: sslConfig)
         }
-        bootstrap = ClientBootstrap(group: eventLoopGroup)
+        return ClientBootstrap(group: eventLoopGroup)
             .channelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
             .channelInitializer { channel in
                 channel.pipeline.add(handler: try! OpenSSLClientHandler(context: self.sslContext!)).then {
@@ -453,8 +459,8 @@ public class ClientRequest {
             }
     }
 
-    private func initializeClientBootstrap(eventLoopGroup: EventLoopGroup) {
-        bootstrap = ClientBootstrap(group: eventLoopGroup)
+    private func initializeClientBootstrap(eventLoopGroup: EventLoopGroup) -> ClientBootstrap {
+        return ClientBootstrap(group: eventLoopGroup)
             .channelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
             .channelInitializer { channel in
                 channel.pipeline.addHTTPClientHandlers().then {
@@ -590,7 +596,12 @@ class HTTPClientHandler: ChannelInboundHandler {
                  clientResponse.buffer!.byteBuffer.write(buffer: &buffer)
              }
          case .end(_):
-            // Handle redirection
+            defer {
+                clientRequest.closeChannelIfRequired(channel: ctx.channel).whenComplete {
+                    self.clientRequest.shutdownEventLoopGroup()
+                }
+            }
+
             if clientResponse.statusCode == .movedTemporarily || clientResponse.statusCode == .movedPermanently {
                 self.clientRequest.redirectCount += 1
                 if self.clientRequest.redirectCount < self.clientRequest.maxRedirects {
@@ -603,33 +614,24 @@ class HTTPClientHandler: ChannelInboundHandler {
                                                               .path(url)],
                                                     callback: clientRequest.callback)
                         request.maxRedirects = self.clientRequest.maxRedirects - 1
-                        // The next request can be asynchronously moved to a DispatchQueue.
-                        // ClientRequest.end() calls connect().wait(), so we better move this to a dispatch queue.
-                        // Because ClientRequest.end() is blocking, we mark the current task complete after the new task also completes.
-                        DispatchQueue.global().async {
-                            request.end()
-                            self.clientRequest.waitSemaphore.signal()
+                        request.endAsync().whenComplete {
+                           self.clientRequest.responsePromise?.succeed(result: ())
                         }
                     } else {
                         let request = ClientRequest(url: url, callback: clientRequest.callback)
                         request.maxRedirects = self.clientRequest.maxRedirects - 1
-                        DispatchQueue.global().async {
-                            request.end()
-                            self.clientRequest.waitSemaphore.signal()
+                        request.endAsync().whenComplete {
+                            self.clientRequest.responsePromise?.succeed(result: ())
                         }
                     }
                 } else {
-                    // The callback may start a new ClientRequest eventually calling wait(), lets invoke the callback on a DispatchQueue
-                    DispatchQueue.global().async {
-                        self.clientRequest.callback(self.clientResponse)
-                        self.clientRequest.waitSemaphore.signal()
-                    }
+                    self.clientRequest.callback(self.clientResponse)
+                    self.clientRequest.responsePromise?.succeed(result: ())
                 }
             } else {
-                DispatchQueue.global().async {
-                    self.clientRequest.callback(self.clientResponse)
-                    self.clientRequest.waitSemaphore.signal()
-                }
+                self.clientRequest.callback(self.clientResponse)
+                self.clientRequest.responsePromise?.succeed(result: ())
+
             }
          }
      }

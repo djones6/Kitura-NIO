@@ -16,6 +16,7 @@
 
 import Dispatch
 import Foundation
+import NIO
 
 import XCTest
 
@@ -26,8 +27,10 @@ class LifecycleListenerTests: KituraNetTest {
     static var allTests : [(String, (LifecycleListenerTests) -> () throws -> Void)] {
         return [
             ("testLifecycle", testLifecycle),
+            ("testLifecycleAsync", testLifecycleAsync),
             ("testLifecycleWithState", testLifecycleWithState),
             ("testServerFailLifecycle", testServerFailLifecycle),
+            ("testServerFailLifecycleAsync", testServerFailLifecycleAsync),
             //("testFastCGILifecycle", testFastCGILifecycle)
         ]
     }
@@ -76,7 +79,33 @@ class LifecycleListenerTests: KituraNetTest {
             XCTFail("Error: \(error)")
         }
     }
-    
+
+    func testLifecycleAsync() {
+        let server = HTTP.createServer()
+
+        let startExpectation = self.expectation(description: "start")
+        let stopExpectation = self.expectation(description: "stop")
+
+        server.stopped {
+            stopExpectation.fulfill()
+        }
+
+        server.started {
+            startExpectation.fulfill()
+        }
+
+        _ = server.listenAsync(on: self.port).then { channel in
+                let promise: EventLoopPromise<Void> = channel.eventLoop.newPromise()
+                server.stopAsync(promise: promise)
+                return promise.futureResult
+            }.thenIfErrorThrowing { error in
+                XCTFail("Error: \(error)")
+                throw error
+            }
+
+        waitForExpectations(timeout: 5)
+    }
+
     /*func testFastCGILifecycle() {
         
         //Create server
@@ -163,6 +192,20 @@ class LifecycleListenerTests: KituraNetTest {
         
         self.waitForExpectations(timeout: 5) { error in
             XCTAssertNil(error)
+        }
+    }
+
+    func testServerFailLifecycleAsync() {
+        let failedCallbackExpectation = self.expectation(description: "failedCallback")
+        let server = HTTP.createServer()
+        server.failed(callback: { error in
+            failedCallbackExpectation.fulfill()
+        })
+
+        _ = server.listenAsync(on: -1)
+
+        self.waitForExpectations(timeout: 5) { error in
+             XCTAssertNil(error)
         }
     }
 }

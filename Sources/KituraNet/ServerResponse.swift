@@ -15,6 +15,7 @@
  */
 
 import Foundation
+import NIO
 
 /// The ServerResponse protocol allows responses to be abstracted
 /// across different networking protocols in an agnostic way to the
@@ -33,6 +34,8 @@ public protocol ServerResponse: class {
     ///
     /// - Throws: Socket.error if an error occurred while writing to the socket
     func write(from string: String) throws
+
+    func writeAsync(from string: String) -> EventLoopFuture<Void>
     
     /// Add bytes to the body of the HTTP response.
     ///
@@ -40,6 +43,8 @@ public protocol ServerResponse: class {
     ///
     /// - Throws: Socket.error if an error occurred while writing to the socket
     func write(from data: Data) throws
+
+    func writeAsync(from data: Data) -> EventLoopFuture<Void>
     
     /// Add a string to the body of the HTTP response and complete sending the HTTP response
     ///
@@ -47,12 +52,16 @@ public protocol ServerResponse: class {
     ///
     /// - Throws: Socket.error if an error occurred while writing to the socket
     func end(text: String) throws
-    
+
+    func endAsync(text: String) -> EventLoopFuture<Void>
+
     /// Complete sending the HTTP response
     ///
     /// - Throws: Socket.error if an error occurred while writing to a socket
     func end() throws
-    
+
+    func endAsync() -> EventLoopFuture<Void>
+
     /// Reset this response object back to it's initial state
     func reset()
     

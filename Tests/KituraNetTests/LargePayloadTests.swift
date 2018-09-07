@@ -25,7 +25,9 @@ class LargePayloadTests: KituraNetTest {
     static var allTests : [(String, (LargePayloadTests) -> () throws -> Void)] {
         return [
             ("testLargePosts", testLargePosts),
-            ("testLargeGets", testLargeGets)
+            ("testLargePostsAsync", testLargePostsAsync),
+            ("testLargeGets", testLargeGets),
+            ("testLargeGetsAsync", testLargeGetsAsync),
         ]
     }
 
@@ -67,6 +69,35 @@ class LargePayloadTests: KituraNetTest {
         })
     }
 
+    func testLargePostsAsync() {
+        try! performServerTestAsync(delegate, useSSL: false, asyncTasks: { expectation, server in
+            let payload = "[" + contentTypesString + "," + contentTypesString + contentTypesString + "," + contentTypesString + "]"
+            return self.performRequestAsync("post", path: "/largepost", callback: {response in
+                XCTAssertEqual(response?.statusCode, HTTPStatusCode.OK, "Status code wasn't .Ok was \(String(describing: response?.statusCode))")
+                do {
+                    let expectedResult = "Read \(payload.count) bytes"
+                    var data = Data()
+                    let count = try response?.readAllData(into: &data)
+                    XCTAssertEqual(count, expectedResult.count, "Result should have been \(expectedResult.count) bytes, was \(String(describing: count)) bytes")
+                    let postValue = String(data: data, encoding: .utf8)
+                    if  let postValue = postValue {
+                        XCTAssertEqual(postValue, expectedResult)
+                    }
+                    else {
+                        XCTFail("postValue's value wasn't an UTF8 string")
+                    }
+                }
+                catch {
+                    XCTFail("Failed reading the body of the response")
+                }
+                expectation.fulfill()
+            }) {request in
+                request.write(from: payload)
+            }
+        }).wait()
+        waitForExpectations(timeout: 10)
+    }
+
     func testLargeGets() {
         performServerTest(delegate, useSSL: false, asyncTasks: { expectation in
             // This test is NOT using self.performRequest, in order to test an extra signature of HTTP.request
@@ -76,6 +107,17 @@ class LargePayloadTests: KituraNetTest {
             }
             request.end()
         })
+    }
+
+    func testLargeGetsAsync() {
+        try! performServerTestAsync(delegate, useSSL: false, asyncTasks: { expectation, server in
+            let request = HTTP.request("http://localhost:\(self.port)/largepost") {response in
+                XCTAssertEqual(response?.statusCode, HTTPStatusCode.OK, "Status code wasn't .Ok was \(String(describing: response?.statusCode))")
+                expectation.fulfill()
+            }
+            return request.endAsync()
+        }).wait()
+        waitForExpectations(timeout: 10)
     }
 
     private class TestServerDelegate : ServerDelegate {

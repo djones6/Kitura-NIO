@@ -90,10 +90,7 @@ public class HTTPServer : Server {
     /// URI for which the latest WebSocket upgrade was requested by a client
     var latestWebSocketURI: String?
 
-    /// Listens for connections on a socket
-    ///
-    /// - Parameter on: port number for new connections (eg. 8080)
-    public func listen(on port: Int) throws {
+    private func bind(on port: Int) -> EventLoopFuture<Channel> {
         self.port = port
 
         if let tlsConfig = tlsConfig {
@@ -148,28 +145,35 @@ public class HTTPServer : Server {
                 }
             }
             .childChannelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
+        return bootstrap.bind(host: "0.0.0.0", port: port)
+    }
 
-        do {
-            serverChannel = try bootstrap.bind(host: "0.0.0.0", port: port).wait()
-            self.port = serverChannel?.localAddress?.port.map { Int($0) }
+    /// A non-blocking implementation of listen(on:)
+    ///
+    /// - Parameter on: port number for new connections (eg. 8080)
+    /// - Returns a future holding a Channel
+    public func listenAsync(on port: Int) -> EventLoopFuture<Channel> {
+        return self.bind(on: port).then { channel in
+            self.port = channel.localAddress?.port.map { Int($0) }
+            self.serverChannel = channel
             self.state = .started
             self.lifecycleListener.performStartCallbacks()
-        } catch let error {
+            Log.info("Listening on port \(self.port!)")
+            Log.verbose("Options for port \(self.port!): maxPendingConnections: \(self.maxPendingConnections), allowPortReuse: \(self.allowPortReuse)")
+            return channel.eventLoop.newSucceededFuture(result: channel)
+        }.thenIfErrorThrowing { error in
             self.state = .failed
             self.lifecycleListener.performFailCallbacks(with: error)
             Log.error("Error trying to bind to \(port): \(error)")
             throw error
         }
+    }
 
-        Log.info("Listening on port \(self.port!)")
-        Log.verbose("Options for port \(self.port!): maxPendingConnections: \(maxPendingConnections), allowPortReuse: \(self.allowPortReuse)")
-
-        let queuedBlock = DispatchWorkItem(block: { 
-            try! self.serverChannel.closeFuture.wait()
-            self.state = .stopped
-            self.lifecycleListener.performStopCallbacks()
-        })
-        ListenerGroup.enqueueAsynchronously(on: DispatchQueue.global(), block: queuedBlock)
+    /// Listens for connections on a socket
+    ///
+    /// - Parameter on: port number for new connections (eg. 8080)
+    public func listen(on port: Int) throws {
+        try listenAsync(on: port).wait()
     }
 
 
@@ -185,7 +189,6 @@ public class HTTPServer : Server {
         try server.listen(on: port)
         return server
     }
-
 
     /// Listens for connections on a socket
     ///
@@ -227,8 +230,21 @@ public class HTTPServer : Server {
     /// Stop listening for new connections.
     public func stop() {
         guard serverChannel != nil else { return }
-        try! serverChannel.close().wait()
-        self.state = .stopped
+        let promise: EventLoopPromise<Void> = serverChannel.eventLoop.newPromise()
+        stopAsync(promise: promise)
+        try! promise.futureResult.wait()
+    }
+
+    public func stopAsync(promise: EventLoopPromise<Void>) {
+        guard serverChannel != nil else {
+            promise.succeed(result: ())
+            return
+        }
+        promise.futureResult.whenComplete {
+            self.state = .stopped
+            self.lifecycleListener.performStopCallbacks()
+        }
+        serverChannel.close(promise: promise)
     }
 
     /// Add a new listener for server beeing started

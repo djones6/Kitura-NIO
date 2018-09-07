@@ -70,11 +70,15 @@ public class HTTPServerResponse: ServerResponse {
     ///
     /// - Parameter from: String data to be written.
     public func write(from string: String) throws {
+        try writeAsync(from: string).wait()
+    }
+
+    public func writeAsync(from string: String) -> EventLoopFuture<Void> {
         guard let channel = channel else {
             fatalError("No channel available to write.")
         }
 
-        execute(on: channel.eventLoop) {
+        return execute(on: channel.eventLoop) {
             self.buffer.write(string: string)
         }
     }
@@ -83,21 +87,25 @@ public class HTTPServerResponse: ServerResponse {
     ///
     /// - Parameter from: Data object that contains the data to be written.
     public func write(from data: Data) throws {
+        try writeAsync(from: data).wait()
+    }
+
+    public func writeAsync(from data: Data) -> EventLoopFuture<Void> {
         guard let channel = channel else {
             fatalError("No channel available to write.")
         }
-
-        execute(on: channel.eventLoop) {
+        return execute(on: channel.eventLoop) {
             self.buffer.write(bytes: data)
         }
     }
 
     /// Executes task on event loop
-    private func execute(on eventLoop: EventLoop, _ task: @escaping () -> Void) {
+    private func execute(on eventLoop: EventLoop, _ task: @escaping () -> Void) -> EventLoopFuture<Void> {
         if eventLoop.inEventLoop {
             task()
+            return eventLoop.newSucceededFuture(result: ())
         } else {
-            eventLoop.execute {
+            return eventLoop.submit {
                 task()
             }
         }
@@ -107,21 +115,25 @@ public class HTTPServerResponse: ServerResponse {
     ///
     /// - Parameter text: String to write to a socket.
     public func end(text: String) throws {
-        try write(from: text)
-        try end()
+        try endAsync(text: text).wait()
+    }
+
+    public func endAsync(text: String) -> EventLoopFuture<Void> {
+        return writeAsync(from: text).then {
+            return self.endAsync()
+        }
     }
 
     /// End sending the response.
     ///
     public func end() throws {
-        guard let channel = self.channel else {
-            fatalError("No channel available.")
-        }
+        try endAsync().wait()
+    }
 
-        guard let handler = self.handler else {
-            fatalError("No HTTP handler available")
+    public func endAsync() -> EventLoopFuture<Void> {
+        guard let channel = self.channel, let handler = self.handler else {
+            fatalError("Possibly writing to a non-existing/stale connection")
         }
-
         let status = HTTPResponseStatus(statusCode: statusCode?.rawValue ?? 0)
         if handler.clientRequestedKeepAlive {
             headers["Connection"] = ["Keep-Alive"]
@@ -132,12 +144,8 @@ public class HTTPServerResponse: ServerResponse {
             }
         }
 
-        execute(on: channel.eventLoop) {
-            do {
-                try self.sendResponse(channel: channel, handler: handler, status: status)
-            } catch let error {
-                fatalError("Error: \(error)")
-            }
+        return execute(on: channel.eventLoop) {
+            self.sendResponse(channel: channel, handler: handler, status: status)
         }
     }
 
@@ -157,17 +165,13 @@ public class HTTPServerResponse: ServerResponse {
         //We don't keep the connection alive on an HTTP error
         headers["Connection"] = ["Close"]
 
-        execute(on: channel.eventLoop) {
-            do {
-                try self.sendResponse(channel: channel, handler: handler, status: status, withBody: withBody)
-            } catch let error {
-                fatalError("Error: \(error)")
-            }
-        }
+        try execute(on: channel.eventLoop) {
+            self.sendResponse(channel: channel, handler: handler, status: status, withBody: withBody)
+        }.wait()
     }
 
     /// Send response to the client
-    private func sendResponse(channel: Channel, handler: HTTPRequestHandler, status: HTTPResponseStatus, withBody: Bool = true) throws {
+    private func sendResponse(channel: Channel, handler: HTTPRequestHandler, status: HTTPResponseStatus, withBody: Bool = true) {
         let response = HTTPResponseHead(version: httpVersion, status: status, headers: headers.httpHeaders())
         channel.write(handler.wrapOutboundOut(.head(response)), promise: nil)
         if withBody && buffer.readableBytes > 0 {
