@@ -15,6 +15,7 @@
  */
 
 import Foundation
+import NIOHTTP1
 
 /// The ServerRequest protocol allows requests to be abstracted 
 /// across different networking protocols in an agnostic way to the
@@ -22,7 +23,7 @@ import Foundation
 public protocol ServerRequest: class {
     
     /// The set of headers received with the incoming request
-    var headers : HeadersContainer { get }
+    var httpHeaders : HTTPHeaders { get }
 
     /// The URL from the request in string form
     /// This contains just the path and query parameters starting with '/'

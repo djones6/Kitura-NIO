@@ -15,6 +15,7 @@
  */
 
 import Foundation
+import NIOHTTP1
 
 import LoggerAPI
 
@@ -32,7 +33,7 @@ public class FastCGIServerRequest : ServerRequest {
     public private(set) var httpVersionMinor: UInt16? = 9
 
     /// The set of HTTP headers received with the incoming request
-    public var headers = HeadersContainer()
+    public var httpHeaders = HTTPHeaders()
 
     /// The set of non-HTTP headers received with the incoming request
     public var fastCGIHeaders = HeadersContainer()

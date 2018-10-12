@@ -46,7 +46,10 @@ public class HTTPServerResponse: ServerResponse {
     }
 
     /// The HTTP headers to be sent to the client as part of the response.
-    public var headers : HeadersContainer = HeadersContainer()
+    //public var headers : HeadersContainer = HeadersContainer()
+
+    /// NIO's HTTP headers
+    public var httpHeaders: HTTPHeaders = HTTPHeaders()
 
     /// The HTTP version to be sent in the response.
     private var httpVersion: HTTPVersion
@@ -64,7 +67,7 @@ public class HTTPServerResponse: ServerResponse {
         let httpVersionMajor = handler.serverRequest?.httpVersionMajor ?? 1
         let httpVersionMinor = handler.serverRequest?.httpVersionMinor ?? 1
         self.httpVersion = HTTPVersion(major: httpVersionMajor, minor: httpVersionMinor)
-        headers["Date"] = [SPIUtils.httpDate()]
+        httpHeaders.add(name: "Date", value: SPIUtils.httpDate())
     }
 
     /// Write a string as a response.
@@ -133,11 +136,11 @@ public class HTTPServerResponse: ServerResponse {
 
         let status = HTTPResponseStatus(statusCode: statusCode?.rawValue ?? 0)
         if handler.clientRequestedKeepAlive {
-            headers["Connection"] = ["Keep-Alive"]
+            httpHeaders.add(name: "Connection", value: "Keep-Alive")
             if let maxConnections = handler.keepAliveState.requestsRemaining {
-                headers["Keep-Alive"] = ["timeout=\(HTTPRequestHandler.keepAliveTimeout), max=\(Int(maxConnections))"]
+                httpHeaders.add(name: "Keep-Alive", value: "timeout=\(HTTPRequestHandler.keepAliveTimeout), max=\(Int(maxConnections))")
             } else {
-                headers["Keep-Alive"] = ["timeout=\(HTTPRequestHandler.keepAliveTimeout)"]
+                httpHeaders.add(name: "Keep-Alive", value: "timeout=\(HTTPRequestHandler.keepAliveTimeout)")
             }
         }
 
@@ -169,7 +172,7 @@ public class HTTPServerResponse: ServerResponse {
         let status = HTTPResponseStatus(statusCode: errorCode.rawValue)
 
         //We don't keep the connection alive on an HTTP error
-        headers["Connection"] = ["Close"]
+        httpHeaders.add(name: "Connection", value: "Close")
 
         execute(on: channel.eventLoop) {
             do {
@@ -183,7 +186,7 @@ public class HTTPServerResponse: ServerResponse {
 
     /// Send response to the client
     private func sendResponse(channel: Channel, handler: HTTPRequestHandler, status: HTTPResponseStatus, withBody: Bool = true) throws {
-        let response = HTTPResponseHead(version: httpVersion, status: status, headers: headers.httpHeaders())
+        let response = HTTPResponseHead(version: httpVersion, status: status, headers: httpHeaders)
         channel.write(handler.wrapOutboundOut(.head(response)), promise: nil)
         if withBody && buffer.readableBytes > 0 {
             channel.write(handler.wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
@@ -208,7 +211,7 @@ public class HTTPServerResponse: ServerResponse {
     public func reset() {
         status = HTTPStatusCode.OK.rawValue
         buffer.clear()
-        headers.removeAll()
-        headers["Date"] = [SPIUtils.httpDate()]
+        //headers.removeAll()
+        //headers["Date"] = [SPIUtils.httpDate()]
     }
 }

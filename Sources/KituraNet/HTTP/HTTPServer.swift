@@ -22,6 +22,8 @@ import SSLService
 import LoggerAPI
 import NIOWebSocket
 
+public typealias HTTPHeaders = NIOHTTP1.HTTPHeaders
+
 /// An HTTP server that listens for connections on a socket.
 public class HTTPServer : Server {
     
@@ -150,7 +152,7 @@ public class HTTPServer : Server {
                     _ = channel.pipeline.remove(handler: httpHandler)
                 })
                 return channel.pipeline.add(handler: IdleStateHandler(allTimeout: TimeAmount.seconds(Int(HTTPRequestHandler.keepAliveTimeout)))).then {
-                    return channel.pipeline.configureHTTPServerPipeline(withServerUpgrade: config, withErrorHandling: true).then { () -> EventLoopFuture<Void> in
+                    return channel.pipeline.configureHTTPServerPipeline(withPipeliningAssistance: false, withServerUpgrade: config, withErrorHandling: false).then { () -> EventLoopFuture<Void> in
                         if let sslContext = self.sslContext {
                             _ = channel.pipeline.add(handler: try! OpenSSLServerHandler(context: sslContext), first: true)
                         }
@@ -300,8 +302,8 @@ class HTTPDummyServerDelegate: ServerDelegate {
         do {
             response.statusCode = .notFound
             let theBody = "Path not found"
-            response.headers["Content-Type"] = ["text/plain"]
-            response.headers["Content-Length"] = [String(theBody.lengthOfBytes(using: .utf8))]
+            response.httpHeaders.add(name: "Content-Type", value: "text/plain")
+            response.httpHeaders.add(name: "Content-Length", value: String(theBody.lengthOfBytes(using: .utf8)))
             try response.write(from: theBody)
             try response.end()
         }

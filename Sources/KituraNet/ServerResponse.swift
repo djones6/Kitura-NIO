@@ -15,6 +15,7 @@
  */
 
 import Foundation
+import NIOHTTP1
 
 /// The ServerResponse protocol allows responses to be abstracted
 /// across different networking protocols in an agnostic way to the
@@ -25,7 +26,7 @@ public protocol ServerResponse: class {
     var statusCode: HTTPStatusCode? { get set }
     
     /// The headers to send back as part of the HTTP response.
-    var headers : HeadersContainer { get }
+    var httpHeaders : HTTPHeaders { get set }
     
     /// Add a string to the body of the HTTP response.
     ///

@@ -15,6 +15,7 @@
  */
 
 import Foundation
+import NIOHTTP1
 
 // TBD: Bound should be of type Int i.e. Bound == Int. Currently this syntax is unavailable, expected to be shipped with Swift 3.1.
 // https://forums.developer.apple.com/thread/6627
@@ -51,7 +52,7 @@ public class FastCGIServerResponse : ServerResponse {
     private var startFlushed = false
 
     /// The headers to send back as part of the HTTP response.
-    public var headers = HeadersContainer()
+    public var httpHeaders = HTTPHeaders()
 
     /// Status code
     private var status = HTTPStatusCode.OK.rawValue
