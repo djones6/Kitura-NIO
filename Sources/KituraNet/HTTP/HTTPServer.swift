@@ -175,7 +175,7 @@ public class HTTPServer : Server {
                     _ = channel.pipeline.remove(handler: httpHandler)
                 })
                 //return channel.pipeline.add(handler: IdleStateHandler(allTimeout: TimeAmount.seconds(Int(HTTPRequestHandler.keepAliveTimeout)))).then {
-                    return channel.pipeline.configureHTTPServerPipeline(withServerUpgrade: config, withErrorHandling: true).then { () -> EventLoopFuture<Void> in
+                    return channel.pipeline.configureHTTPServerPipeline(withPipeliningAssistance: false, withServerUpgrade: config, withErrorHandling: false).then { () -> EventLoopFuture<Void> in
                         if let openSSLServerHandler = self.createOpenSSLServerHandler() {
                             _ = channel.pipeline.add(handler: openSSLServerHandler, first: true)
                         }
