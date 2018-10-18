@@ -77,6 +77,17 @@ public class URLParser : CustomStringConvertible {
     }
 
 
+    private static var parsers: [Data: URLParser] = [:]
+
+    public static func createURLParser(url: Data, isConnect: Bool) -> URLParser {
+        if let parser = parsers[url] {
+            return parser
+        }
+        let newParser = URLParser(url: url, isConnect: isConnect)
+        parsers[url] = newParser
+        return newParser
+    }
+
     /// Initialize a new `URLParser` instance.
     ///     - Parameter url: The URL to be parsed.
     ///     - Parameter isConnect: A boolean, indicating whether or not a connection has been established.
