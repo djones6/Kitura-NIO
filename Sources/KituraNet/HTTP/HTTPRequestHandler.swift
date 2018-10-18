@@ -70,6 +70,8 @@ internal class HTTPRequestHandler: ChannelInboundHandler {
     public typealias InboundIn = HTTPServerRequestPart
     public typealias OutboundOut = HTTPServerResponsePart
 
+    private var prevHTTPRequestHead: HTTPRequestHead? = nil
+
     public func channelRead(ctx: ChannelHandlerContext, data: NIOAny) {
         let request = self.unwrapInboundIn(data)
 
@@ -80,7 +82,11 @@ internal class HTTPRequestHandler: ChannelInboundHandler {
 
         switch request {
         case .head(let header):
-            serverRequest = HTTPServerRequest(ctx: ctx, requestHead: header, enableSSL: enableSSLVerfication)
+            if prevHTTPRequestHead == nil || prevHTTPRequestHead != header {
+                serverRequest = HTTPServerRequest(ctx: ctx, requestHead: header, enableSSL: enableSSLVerfication)
+                serverResponse = HTTPServerResponse(channel: ctx.channel, handler: self)
+                prevHTTPRequestHead = header
+            }
             self.clientRequestedKeepAlive = header.isKeepAlive
         case .body(var buffer):
             guard let serverRequest = serverRequest else {
@@ -93,7 +99,7 @@ internal class HTTPRequestHandler: ChannelInboundHandler {
                 serverRequest.buffer!.byteBuffer.write(buffer: &buffer)
             }
         case .end(_):
-            serverResponse = HTTPServerResponse(channel: ctx.channel, handler: self)
+            serverResponse?.reset()
             //Make sure we use the latest delegate registered with the server
             //DispatchQueue.global().async {
                 guard let serverRequest = self.serverRequest, let serverResponse = self.serverResponse else { return }
