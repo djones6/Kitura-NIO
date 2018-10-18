@@ -184,6 +184,7 @@ public class HTTPServer : Server {
                 //}
             }
             .childChannelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
+            .childChannelOption(ChannelOptions.maxMessagesPerRead, value: 1)
 
         do {
             serverChannel = try bootstrap.bind(host: "0.0.0.0", port: port).wait()
