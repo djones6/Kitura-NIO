@@ -70,7 +70,7 @@ internal class HTTPRequestHandler: ChannelInboundHandler {
     public typealias InboundIn = HTTPServerRequestPart
     public typealias OutboundOut = HTTPServerResponsePart
 
-    private var prevHTTPRequestHead: HTTPRequestHead? = nil
+    private var prevHTTPRequestHeads: [(HTTPRequestHead, HTTPServerRequest, HTTPServerResponse)] = [] 
 
     public func channelRead(ctx: ChannelHandlerContext, data: NIOAny) {
         let request = self.unwrapInboundIn(data)
@@ -82,10 +82,18 @@ internal class HTTPRequestHandler: ChannelInboundHandler {
 
         switch request {
         case .head(let header):
-            if prevHTTPRequestHead == nil || prevHTTPRequestHead != header {
+            let requestAndResponse: (HTTPServerRequest, HTTPServerResponse)? = { 
+                let entry = prevHTTPRequestHeads.filter { $0.0 == header }
+                guard entry.count == 1 else { return nil}
+                return (entry[0].1, entry[0].2)
+            }()
+            if requestAndResponse == nil {
                 serverRequest = HTTPServerRequest(ctx: ctx, requestHead: header, enableSSL: enableSSLVerfication)
                 serverResponse = HTTPServerResponse(channel: ctx.channel, handler: self)
-                prevHTTPRequestHead = header
+                prevHTTPRequestHeads.append((header, serverRequest!, serverResponse!))
+            } else {
+                serverRequest = requestAndResponse!.0 
+                serverResponse = requestAndResponse!.1 
             }
             self.clientRequestedKeepAlive = header.isKeepAlive
         case .body(var buffer):
