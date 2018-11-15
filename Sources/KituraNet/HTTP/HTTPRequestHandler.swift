@@ -101,12 +101,12 @@ internal class HTTPRequestHandler: ChannelInboundHandler {
         case .end(_):
             serverResponse?.reset()
             //Make sure we use the latest delegate registered with the server
-            //DispatchQueue.global().async {
+            DispatchQueue.global().async {
                 guard let serverRequest = self.serverRequest, let serverResponse = self.serverResponse else { return }
                 let delegate = self.server.delegate ?? HTTPDummyServerDelegate()
                 Monitor.delegate?.started(request: serverRequest, response: serverResponse)
                 delegate.handle(request: serverRequest, response: serverResponse)
-            //}
+            }
         }
     }
 
