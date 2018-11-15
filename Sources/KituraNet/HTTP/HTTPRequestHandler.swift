@@ -70,7 +70,24 @@ internal class HTTPRequestHandler: ChannelInboundHandler {
     public typealias InboundIn = HTTPServerRequestPart
     public typealias OutboundOut = HTTPServerResponsePart
 
-    private var prevHTTPRequestHeads: [(HTTPRequestHead, HTTPServerRequest, HTTPServerResponse)] = [] 
+    struct _RequestCache {
+        private var prevHTTPRequestHeads: [(HTTPRequestHead, HTTPServerRequest, HTTPServerResponse)] = [] 
+
+        func get(header: HTTPRequestHead) -> (HTTPServerRequest, HTTPServerResponse)? {
+            let entry = prevHTTPRequestHeads.filter { $0.0 == header }
+            guard entry.count == 1 else { return nil }
+            return (entry[0].1, entry[0].2)
+        }
+
+        mutating func put(_ header: HTTPRequestHead, _ request: HTTPServerRequest, _ response: HTTPServerResponse) {
+            if prevHTTPRequestHeads.count > 5 {
+                prevHTTPRequestHeads.removeFirst()
+            }
+            prevHTTPRequestHeads.append((header, request, response))
+        }
+    }            
+            
+    private var requestsCache = _RequestCache()
 
     public func channelRead(ctx: ChannelHandlerContext, data: NIOAny) {
         let request = self.unwrapInboundIn(data)
@@ -82,18 +99,13 @@ internal class HTTPRequestHandler: ChannelInboundHandler {
 
         switch request {
         case .head(let header):
-            let requestAndResponse: (HTTPServerRequest, HTTPServerResponse)? = { 
-                let entry = prevHTTPRequestHeads.filter { $0.0 == header }
-                guard entry.count == 1 else { return nil}
-                return (entry[0].1, entry[0].2)
-            }()
-            if requestAndResponse == nil {
+            if let cachedEntry = requestsCache.get(header: header) {
+                serverRequest = cachedEntry.0
+                serverResponse = cachedEntry.1
+            } else {
                 serverRequest = HTTPServerRequest(ctx: ctx, requestHead: header, enableSSL: enableSSLVerfication)
                 serverResponse = HTTPServerResponse(channel: ctx.channel, handler: self)
-                prevHTTPRequestHeads.append((header, serverRequest!, serverResponse!))
-            } else {
-                serverRequest = requestAndResponse!.0 
-                serverResponse = requestAndResponse!.1 
+                requestsCache.put(header, serverRequest!, serverResponse!)
             }
             self.clientRequestedKeepAlive = header.isKeepAlive
         case .body(var buffer):
