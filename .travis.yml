@@ -57,7 +57,7 @@ matrix:
       env: SWIFT_SNAPSHOT=$SWIFT_DEVELOPMENT_SNAPSHOT BREW_INSTALL_PACKAGES="libressl" CUSTOM_TEST_SCRIPT=.kitura-test.sh
 
 before_install:
-  - git clone https://github.com/IBM-Swift/Package-Builder.git
+  - git clone https://github.com/IBM-Swift/Package-Builder.git -b travis_fold
 
 before_script:
   - export -f travis_nanoseconds
