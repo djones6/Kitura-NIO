@@ -58,5 +58,11 @@ matrix:
 before_install:
   - git clone https://github.com/IBM-Swift/Package-Builder.git
 
+before_script:
+  - export -f travis_nanoseconds
+  - export -f travis_fold
+  - export -f travis_time_start
+  - export -f travis_time_finish
+
 script:
   - ./Package-Builder/build-package.sh -projectDir $TRAVIS_BUILD_DIR
