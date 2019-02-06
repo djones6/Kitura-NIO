@@ -1,6 +1,8 @@
 # Run Kitura-NIO tests
 travis_fold start "kitura-nio.tests"
+travis_time_start
 swift test
+travis_time_finish
 travis_fold end "kitura-nio.tests"
 
 echo ">> Done running tests. Now preparing to run Kitura tests ..."
@@ -15,6 +17,7 @@ export KITURA_NIO=1
 
 # Build once
 travis_fold start "kitura.build"
+travis_time_start
 echo ">> swift build"
 swift build
 
@@ -29,16 +32,19 @@ if [[ $PACKAGE_EDIT_RESULT != 0 ]]; then
     echo ">> Failed to edit the Kitura-NIO dependency."
     exit $PACKAGE_EDIT_RESULT
 fi
+travis_time_finish
 travis_fold end "kitura.build"
 
 # Run Kitura tests
 travis_fold start "kitura.test"
+travis_time_start
 echo ">> swift test"
 swift test
 
 # If the tests failed, exit
 TEST_EXIT_CODE=$?
-travis_fold end "kitura.build"
+travis_time_finish
+travis_fold end "kitura.test"
 
 if [[ $TEST_EXIT_CODE != 0 ]]; then
     exit $TEST_EXIT_CODE
